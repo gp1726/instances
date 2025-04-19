@@ -28,10 +28,10 @@ struct Vertex {
 struct InstanceData {
     XMFLOAT3 offset; // position offset
 };
+
 int g_currentgridSize = 2;
 const float spacing = 1.0f;
 UINT g_instanceCount = 0;
-
 ID3D11Buffer* g_vertexBuffer = nullptr;
 ID3D11Buffer* g_indexBuffer = nullptr;
 ID3D11Buffer* g_instanceBuffer = nullptr;
@@ -175,10 +175,8 @@ struct Camera {
     float yaw = 0.0f;   // rotation around Y axis (horizontal)
     float pitch = 0.0f; // rotation around X axis (vertical)
 };
-
 Camera g_camera;
 ID3D11Buffer* g_cameraCB = nullptr;
-
 bool CreateCameraBuffer() {
     D3D11_BUFFER_DESC cbDesc = {};
     cbDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -209,6 +207,7 @@ void UpdateCameraBuffer() {
 
     // Combine view and projection matrices
     XMMATRIX viewProjMatrix = XMMatrixMultiply(viewMatrix, projMatrix);
+    
 
     // Update the constant buffer
     CameraCB cameraData = {};
@@ -218,11 +217,9 @@ void UpdateCameraBuffer() {
 
     g_context->UpdateSubresource(g_cameraCB, 0, nullptr, &cameraData, 0, 0);
 }
-
 void SetCameraPosition(float x, float y, float z) {
     g_camera.position = { x, y, z };
 }
-
 bool g_keys[256] = { false };
 void RotateCamera(float deltaYaw, float deltaPitch) {
     g_camera.yaw += deltaYaw;
@@ -274,7 +271,7 @@ void HandleCameraInput(float deltaTime) {
     if (g_keys[VK_RIGHT]) RotateCamera(rotationSpeed, 0.0f);
 }
 
-
+//D3D
 void CleanUpD3D() {
 
     if (g_device) g_device->Release();
@@ -295,7 +292,6 @@ void CleanUpD3D() {
     if (g_vertexShader) g_vertexShader->Release();
     if (g_pixelShader) g_pixelShader->Release();
 }
-
 bool InitShaders() {
 
     //LOAD + COMPILE
@@ -599,6 +595,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
             g_context->ClearDepthStencilView(g_depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
             g_context->VSSetConstantBuffers(0, 1, &g_cameraCB);
+            
+            
             ID3D11Buffer* buffers[2] = { g_vertexBuffer, g_instanceBuffer };
             UINT strides[2] = { sizeof(Vertex), sizeof(InstanceData) };
             UINT offsets[2] = { 0, 0 };
@@ -609,6 +607,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
             g_context->PSSetShader(g_pixelShader, nullptr, 0);
             g_context->IASetIndexBuffer(g_indexBuffer, DXGI_FORMAT_R32_UINT, 0);
             g_context->DrawIndexedInstanced(36,g_instanceCount, 0, 0,0);
+
 
             // Update title
             elapsed += deltaTime;

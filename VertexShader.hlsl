@@ -18,6 +18,7 @@ struct PSInput
 {
     float4 position : SV_POSITION;
     float4 color : COLOR;
+    float3 offset : OFFSET;
 };
 
 PSInput main(VSInput input)
@@ -26,5 +27,6 @@ PSInput main(VSInput input)
     float4 worldPos = float4(input.position + input.offset, 1.0f);
     output.position = mul(worldPos, viewProjMatrix);
     output.color = input.color;
+    output.offset = input.offset;
     return output;
 }
