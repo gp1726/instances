@@ -128,6 +128,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="addons\imgui.cpp" />
+    <ClCompile Include="addons\imgui_demo.cpp" />
+    <ClCompile Include="addons\imgui_draw.cpp" />
+    <ClCompile Include="addons\imgui_impl_dx11.cpp" />
+    <ClCompile Include="addons\imgui_impl_win32.cpp" />
+    <ClCompile Include="addons\imgui_tables.cpp" />
+    <ClCompile Include="addons\imgui_widgets.cpp" />
+    <ClCompile Include="addons\implot.cpp" />
+    <ClCompile Include="addons\implot_demo.cpp" />
+    <ClCompile Include="addons\implot_items.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -139,6 +149,26 @@
     <None Include="PixelShader.hlsl">
       <FileType>Document</FileType>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="ComputeShader.hlsl">
+      <FileType>Document</FileType>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="addons\imconfig.h" />
+    <ClInclude Include="addons\imgui.h" />
+    <ClInclude Include="addons\imgui_impl_dx11.h" />
+    <ClInclude Include="addons\imgui_impl_win32.h" />
+    <ClInclude Include="addons\imgui_internal.h" />
+    <ClInclude Include="addons\implot.h" />
+    <ClInclude Include="addons\implot_internal.h" />
+    <ClInclude Include="addons\imstb_rectpack.h" />
+    <ClInclude Include="addons\imstb_textedit.h" />
+    <ClInclude Include="addons\imstb_truetype.h" />
+    <ClInclude Include="addons\stb_image.h" />
+    <ClInclude Include="addons\stb_image_resize.h" />
+    <ClInclude Include="addons\stb_image_write.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
