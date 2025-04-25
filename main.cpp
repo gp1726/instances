@@ -42,6 +42,10 @@ struct ParticleConstants {
     float deltaTime;
     float gravity;
     float floorY;// Ensure CB size is multiple of 16 bytes
+    float densityRadius;
+    float repulsionRadius;
+    float maxSpeed;
+    float collisionDamping;
 };
 
 int g_currentgridSize = 10;
@@ -49,6 +53,10 @@ const float spacing = 0.6f;
 UINT g_instanceCount = 0;
 static float gravityUI = -9.81f;
 static float floorYUI = -15.0f;
+static float densityRadiusUI = 1.0f;
+static float repulsionRadiusUI = 0.1f;
+static float maxSpeedUI = 8.0f;
+static float collisionDampingUI = 0.4f;
 
 ID3D11Buffer* g_vertexBuffer = nullptr;
 ID3D11Buffer* g_indexBuffer = nullptr;
@@ -280,6 +288,10 @@ void UpdateComputeConstantBuffer(ParticleConstants updateTerms) {
         cbData->deltaTime = updateTerms.deltaTime;
         cbData->gravity = updateTerms.gravity;
         cbData->floorY = updateTerms.floorY;
+        cbData->densityRadius = updateTerms.densityRadius;
+        cbData->repulsionRadius = updateTerms.repulsionRadius;
+        cbData->maxSpeed = updateTerms.maxSpeed;
+        cbData->collisionDamping = updateTerms.collisionDamping;
         // cbData->padding[...] is automatically handled by the struct definition
         g_context->Unmap(g_particleCB, 0);
     }
@@ -767,8 +779,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     MSG msg = {};
     float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 
-
-    UpdateComputeConstantBuffer({g_instanceCount,0.01f,-9.81f,-15.0f});
+    UpdateComputeConstantBuffer({g_instanceCount,0.01f,gravityUI,floorYUI,densityRadiusUI,repulsionRadiusUI,maxSpeedUI,collisionDampingUI});
     UpdateCameraBuffer();
 
     bool show_control_window = true;
@@ -811,7 +822,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                         if (CreateParticleBuffers()) {
                             // Update the constant buffer immediately as particle count changed
                             // We'll update again below with the latest deltaTime, but ensure count is right now.
-                            UpdateComputeConstantBuffer({ g_instanceCount,deltaTime,gravityUI,floorYUI});
+                            UpdateComputeConstantBuffer({g_instanceCount,deltaTime,gravityUI,floorYUI,densityRadiusUI,
+                                repulsionRadiusUI,maxSpeedUI,collisionDampingUI});
                         }
                         else {
                             // Handle error - maybe revert grid size?
@@ -833,19 +845,24 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 bool constantsChanged = false;
                 constantsChanged |= ImGui::DragFloat("Gravity", &gravityUI, 0.1f, -50.0f, 0.0f);
                 constantsChanged |= ImGui::DragFloat("Floor Y", &floorYUI, 0.5f, -100.0f, 0.0f);
-
+                constantsChanged |= ImGui::DragFloat("Density Radius", &densityRadiusUI, 0.001f, 0.0f, 5.0f);
+                constantsChanged |= ImGui::DragFloat("Repulision Radius", &repulsionRadiusUI, 0.001f, 0.0f, 5.0f);                
+                constantsChanged |= ImGui::DragFloat("Max Speed", &maxSpeedUI, 0.01f, 0.0f, 10.0f);
+                constantsChanged |= ImGui::DragFloat("Collision Damping", &collisionDampingUI, 0.01f, 0.0f, 1.0f);
                 // If constants changed via UI, update the CB *before* the compute shader runs
                 if (constantsChanged) {
                     // We need to update the constant buffer. We can reuse UpdateComputeConstantBuffer
                     // but maybe pass the new values, or modify it to read from these static vars.
                     // Let's modify UpdateComputeConstantBuffer slightly.
-                    UpdateComputeConstantBuffer({ g_instanceCount, deltaTime,gravityUI,floorYUI });
+                    UpdateComputeConstantBuffer({ g_instanceCount, deltaTime,gravityUI,floorYUI,
+                        densityRadiusUI,repulsionRadiusUI,maxSpeedUI,collisionDampingUI});
                 }
 
 
                 ImGui::Separator();
                 ImGui::Text("Camera Position: (%.2f, %.2f, %.2f)", g_camera.position.x, g_camera.position.y, g_camera.position.z);
                 ImGui::Text("Particle Count: %u", g_instanceCount);
+                ImGui::Text("FPS: %.1f", io.Framerate);
 
 
                 ImGui::End();
@@ -861,7 +878,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             HandleCameraInput(deltaTime);
             UpdateCameraBuffer();
 
-            UpdateComputeConstantBuffer({ g_instanceCount,deltaTime , gravityUI,floorYUI});
+            UpdateComputeConstantBuffer({ g_instanceCount,deltaTime , gravityUI,floorYUI,densityRadiusUI,repulsionRadiusUI,maxSpeedUI,collisionDampingUI });
             if (g_isPaused) {
                 //COMPUTE SHADER PAUSE
                 // 1. Set Compute Shader

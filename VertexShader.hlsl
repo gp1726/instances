@@ -18,6 +18,7 @@ struct InstanceDataStruct // Use a different name from the buffer variable
 {
     float3 offset;
     float3 velocity;
+    float density;
 };
 
 struct PSInput
@@ -73,7 +74,7 @@ PSInput main(VSInput input, uint instanceID : SV_InstanceID)
     output.position = mul(float4(finalWorldPos, 1.0f), viewProjMatrix);
 
     // Pass color (or calculate based on something else)
-    output.color = float4(instanceData.velocity.xz,1.0f, 1.0f); // Pass vertex color through
+    output.color = float4(instanceData.density,0.3f,1.0f, 1.0f); // Pass vertex color through
     // output.color = float4(1.0, 1.0, 1.0, 1.0); // Or keep it white
 
     return output;
