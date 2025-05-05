@@ -152,7 +152,7 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <None Include="ComputeShader.hlsl">
+    <None Include="densityComputeShader.hlsl">
       <FileType>Document</FileType>
     </None>
   </ItemGroup>
@@ -170,6 +170,11 @@
     <ClInclude Include="addons\stb_image.h" />
     <ClInclude Include="addons\stb_image_resize.h" />
     <ClInclude Include="addons\stb_image_write.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="forceComputeShader.hlsl">
+      <FileType>Document</FileType>
+    </None>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

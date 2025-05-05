@@ -6,7 +6,6 @@
 #include <d3dcompiler.h>
 #include <DirectXMath.h>
 using namespace DirectX;
-
 #include "addons/imgui.h" 
 #include "addons/imgui_impl_win32.h"
 #include "addons/imgui_impl_dx11.h"
@@ -17,7 +16,8 @@ ID3D11DeviceContext* g_context = nullptr;
 IDXGISwapChain* g_swapChain = nullptr;
 ID3D11RenderTargetView* g_renderTargetView = nullptr;
 
-ID3D11ComputeShader* g_computeShader = nullptr;
+ID3D11ComputeShader* g_computeForceShader = nullptr;
+ID3D11ComputeShader* g_computeDensityShader = nullptr;
 ID3D11InputLayout* g_inputLayout = nullptr;
 ID3D11VertexShader* g_vertexShader = nullptr;
 ID3D11PixelShader* g_pixelShader = nullptr;
@@ -35,6 +35,9 @@ struct InstanceData {
     XMFLOAT3 offset; // position offset
     XMFLOAT3 velocity;
     float density;
+    XMFLOAT3 force;
+    XMFLOAT3 predictedPosition;
+    XMFLOAT2 padding;
 };
 
 struct ParticleConstants {
@@ -42,36 +45,43 @@ struct ParticleConstants {
     float deltaTime;
     float gravity;
     float floorY;// Ensure CB size is multiple of 16 bytes
+    
     float densityRadius;
-    float repulsionRadius;
     float maxSpeed;
     float collisionDamping;
+    float restDensity;
+
+    float stiffnessConstant;
+    float boundary;
+    float padding[2];
 };
 
 int g_currentgridSize = 10;
 const float spacing = 0.6f;
 UINT g_instanceCount = 0;
+static float deltaTime = 1/165.0f;
 static float gravityUI = -9.81f;
 static float floorYUI = -15.0f;
-static float densityRadiusUI = 1.0f;
-static float repulsionRadiusUI = 0.1f;
-static float maxSpeedUI = 8.0f;
-static float collisionDampingUI = 0.4f;
+static float densityRadiusUI = 0.53f;
+static float maxSpeedUI = 10.0f;
+static float viscosityUI = 0.4f;
+static float restDensityUI = 5.0f;
+static float stiffnessUI = 2000.0f;
+static float boundaryUI = 10.0f;
+
+
 
 ID3D11Buffer* g_vertexBuffer = nullptr;
 ID3D11Buffer* g_indexBuffer = nullptr;
-
-
 
 ID3D11Buffer* g_instanceBuffers[2] = { nullptr,nullptr };
 ID3D11ShaderResourceView* g_instanceSRVs[2] = { nullptr, nullptr };
 ID3D11UnorderedAccessView* g_instanceUAVs[2] = { nullptr,nullptr };
 ID3D11ShaderResourceView* nullSRV = nullptr;
 ID3D11UnorderedAccessView* nullUAV = nullptr;
-int g_currentReadBuffer = 0;
-
 ID3D11Buffer* g_particleCB = nullptr;
-
+int g_currentReadBuffer = 0;
+//initialize vertex and index buffers for drawing quad geometry from two triangles
 bool initGeometry() {
     if (g_vertexBuffer) {
 
@@ -158,7 +168,6 @@ bool initGeometry() {
     hr = g_device->CreateBuffer(&indexDesc, &indexData, &g_indexBuffer);
     return SUCCEEDED(hr);
 }
-
 //CLEAR BUFFERS TO MAINTAIN MEMORY FOR RESIZING
 void ReleaseParticleBuffers() {
     for (int i = 0; i < 2; ++i) {
@@ -194,6 +203,8 @@ bool CreateParticleBuffers() {
                 instance.offset.y = (static_cast<float>(y) - static_cast<float>(renderExtent - 1) / 2.0f) * spacing;
                 instance.offset.z = (static_cast<float>(z) - static_cast<float>(renderExtent - 1) / 2.0f) * spacing;
                 instance.velocity = XMFLOAT3(distr(gen), distr(gen), distr(gen));
+                instance.force = XMFLOAT3(0, 0, 0);
+                instance.predictedPosition = instance.offset;
                 instances.push_back(instance);
                 
             }
@@ -288,10 +299,15 @@ void UpdateComputeConstantBuffer(ParticleConstants updateTerms) {
         cbData->deltaTime = updateTerms.deltaTime;
         cbData->gravity = updateTerms.gravity;
         cbData->floorY = updateTerms.floorY;
+
         cbData->densityRadius = updateTerms.densityRadius;
-        cbData->repulsionRadius = updateTerms.repulsionRadius;
         cbData->maxSpeed = updateTerms.maxSpeed;
         cbData->collisionDamping = updateTerms.collisionDamping;
+        cbData->restDensity = updateTerms.restDensity;
+
+        cbData->stiffnessConstant = updateTerms.stiffnessConstant;
+        cbData->boundary = updateTerms.boundary;
+
         // cbData->padding[...] is automatically handled by the struct definition
         g_context->Unmap(g_particleCB, 0);
     }
@@ -425,8 +441,8 @@ void CleanUpD3D() {
     if (g_inputLayout) { g_inputLayout->Release(); g_inputLayout = nullptr; }
     if (g_vertexShader) { g_vertexShader->Release(); g_vertexShader = nullptr; }
     if (g_pixelShader) { g_pixelShader->Release(); g_pixelShader = nullptr; }
-    if (g_computeShader) { g_computeShader->Release(); g_computeShader = nullptr; }
-
+    if (g_computeDensityShader) { g_computeDensityShader->Release(); g_computeDensityShader = nullptr; }
+    if (g_computeForceShader) { g_computeForceShader->Release(); g_computeForceShader = nullptr; }
 
     // Release States
     if (g_depthStencilState) { g_depthStencilState->Release(); g_depthStencilState = nullptr; }
@@ -445,7 +461,7 @@ void CleanUpD3D() {
 bool InitShaders() {
 
     //LOAD + COMPILE
-    ID3DBlob* csBlob = nullptr, * vsBlob = nullptr, * psBlob = nullptr, * errors = nullptr;
+    ID3DBlob* csBlob1 = nullptr, *csBlob2 =nullptr, * vsBlob = nullptr, * psBlob = nullptr, * errors = nullptr;
     HRESULT hr = D3DCompileFromFile(L"VertexShader.hlsl", nullptr, nullptr, "main", "vs_5_0", 0, 0, &vsBlob, &errors);
     if (FAILED(hr)) {
         if (errors) { MessageBoxA(nullptr, (char*)errors->GetBufferPointer(), "Vertex Shader Compile Error", MB_OK); errors->Release(); }
@@ -456,11 +472,16 @@ bool InitShaders() {
         if (errors) { MessageBoxA(nullptr, (char*)errors->GetBufferPointer(), "Pixel Shader Compile Error", MB_OK); errors->Release(); }
         return false;
     }
-	hr = D3DCompileFromFile(L"ComputeShader.hlsl", nullptr, nullptr, "main", "cs_5_0", 0, 0, &csBlob, &errors);
+	hr = D3DCompileFromFile(L"densityComputeShader.hlsl", nullptr, nullptr, "main", "cs_5_0", 0, 0, &csBlob1, &errors);
 	if (FAILED(hr)) {
-		if (errors) { MessageBoxA(nullptr, (char*)errors->GetBufferPointer(), "Compute Shader Compile Error", MB_OK); errors->Release(); }
+		if (errors) { MessageBoxA(nullptr, (char*)errors->GetBufferPointer(), "Density Compute Shader Compile Error", MB_OK); errors->Release(); }
 		return false;
 	}
+    hr = D3DCompileFromFile(L"forceComputeShader.hlsl", nullptr, nullptr, "main", "cs_5_0", 0, 0, &csBlob2, &errors);
+    if (FAILED(hr)) {
+        if (errors) { MessageBoxA(nullptr, (char*)errors->GetBufferPointer(), "Force Compute Shader Compile Error", MB_OK); errors->Release(); }
+        return false;
+    }
 
 
     //CREATE
@@ -469,7 +490,8 @@ bool InitShaders() {
         if (errors) { MessageBoxA(nullptr, (char*)errors->GetBufferPointer(), "Vertex Shader Creation Error", MB_OK); errors->Release(); }
         vsBlob->Release();
         psBlob->Release();
-		csBlob->Release();
+		csBlob1->Release();
+        csBlob2->Release();
         return false;
     }
     hr = g_device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &g_pixelShader);
@@ -477,15 +499,26 @@ bool InitShaders() {
         if (errors) { MessageBoxA(nullptr, (char*)errors->GetBufferPointer(), "Pixel Shader Creation Error", MB_OK); errors->Release(); }
         vsBlob->Release();
         psBlob->Release();
-		csBlob->Release();
+		csBlob1->Release();
+        csBlob2->Release();
         return false;
     }
-	hr = g_device->CreateComputeShader(csBlob->GetBufferPointer(), csBlob->GetBufferSize(), nullptr, &g_computeShader);
+	hr = g_device->CreateComputeShader(csBlob1->GetBufferPointer(), csBlob1->GetBufferSize(), nullptr, &g_computeDensityShader);
     if (FAILED(hr)) {
-        if (errors) { MessageBoxA(nullptr, (char*)errors->GetBufferPointer(), "Compute Shader Creation Error", MB_OK); errors->Release(); }
+        if (errors) { MessageBoxA(nullptr, (char*)errors->GetBufferPointer(), "Density Compute Shader Creation Error", MB_OK); errors->Release(); }
         vsBlob->Release();
         psBlob->Release();
-        csBlob->Release();
+        csBlob1->Release();
+        csBlob2->Release();
+        return false;
+    }
+    hr = g_device->CreateComputeShader(csBlob2->GetBufferPointer(), csBlob2->GetBufferSize(), nullptr, &g_computeForceShader);
+    if (FAILED(hr)) {
+        if (errors) { MessageBoxA(nullptr, (char*)errors->GetBufferPointer(), "Force Compute Shader Creation Error", MB_OK); errors->Release(); }
+        vsBlob->Release();
+        psBlob->Release();
+        csBlob1->Release();
+        csBlob2->Release();
         return false;
     }
 
@@ -503,14 +536,16 @@ bool InitShaders() {
         MessageBoxA(nullptr, "Failed to create input layout", "Error", MB_OK);
         vsBlob->Release();
         psBlob->Release();
-        csBlob->Release();
+        csBlob1->Release();
+        csBlob2->Release();
         return false;
     }
     
     
     vsBlob->Release();
     psBlob->Release();
-    csBlob->Release();
+    csBlob1->Release();
+    csBlob2->Release();
     if (errors) errors->Release();
     return SUCCEEDED(hr);
 
@@ -747,7 +782,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-
+    
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
     //ImGui::StyleColorsClassic();
@@ -768,18 +803,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     // -----------------------
 
 
-    LARGE_INTEGER frequency, prevTime, currentTime;
-    QueryPerformanceFrequency(&frequency);
-    QueryPerformanceCounter(&prevTime);
-    int frameCount = 0;
-    double elapsed = 0.0;
+    
+    
     char title[128];
     ShowWindow(hwnd, nCmdShow);
     UpdateWindow(hwnd);
     MSG msg = {};
     float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 
-    UpdateComputeConstantBuffer({g_instanceCount,0.01f,gravityUI,floorYUI,densityRadiusUI,repulsionRadiusUI,maxSpeedUI,collisionDampingUI});
+    UpdateComputeConstantBuffer({g_instanceCount,0.01f,gravityUI,floorYUI,densityRadiusUI,maxSpeedUI,viscosityUI,restDensityUI,stiffnessUI,boundaryUI});
     UpdateCameraBuffer();
 
     bool show_control_window = true;
@@ -792,10 +824,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             DispatchMessage(&msg);
         }
         else {
-            QueryPerformanceCounter(&currentTime);
+            //QueryPerformanceCounter(&currentTime);
 
-            float deltaTime = static_cast<float>(currentTime.QuadPart - prevTime.QuadPart) / frequency.QuadPart;
-            prevTime = currentTime;
+            //float deltaTime = static_cast<float>(currentTime.QuadPart - prevTime.QuadPart) / frequency.QuadPart;
+            //prevTime = currentTime;
 
             ImGui_ImplDX11_NewFrame();
             ImGui_ImplWin32_NewFrame();
@@ -823,7 +855,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                             // Update the constant buffer immediately as particle count changed
                             // We'll update again below with the latest deltaTime, but ensure count is right now.
                             UpdateComputeConstantBuffer({g_instanceCount,deltaTime,gravityUI,floorYUI,densityRadiusUI,
-                                repulsionRadiusUI,maxSpeedUI,collisionDampingUI});
+                                maxSpeedUI,viscosityUI,restDensityUI,stiffnessUI, boundaryUI});
                         }
                         else {
                             // Handle error - maybe revert grid size?
@@ -845,17 +877,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 bool constantsChanged = false;
                 constantsChanged |= ImGui::DragFloat("Gravity", &gravityUI, 0.1f, -50.0f, 0.0f);
                 constantsChanged |= ImGui::DragFloat("Floor Y", &floorYUI, 0.5f, -100.0f, 0.0f);
-                constantsChanged |= ImGui::DragFloat("Density Radius", &densityRadiusUI, 0.001f, 0.0f, 5.0f);
-                constantsChanged |= ImGui::DragFloat("Repulision Radius", &repulsionRadiusUI, 0.001f, 0.0f, 5.0f);                
-                constantsChanged |= ImGui::DragFloat("Max Speed", &maxSpeedUI, 0.01f, 0.0f, 10.0f);
-                constantsChanged |= ImGui::DragFloat("Collision Damping", &collisionDampingUI, 0.01f, 0.0f, 1.0f);
+                constantsChanged |= ImGui::DragFloat("Density Radius", &densityRadiusUI, 0.01f, 0.0f, 3.0f);
+                constantsChanged |= ImGui::DragFloat("Rest Density", &restDensityUI, 0.1f, 0.0f, 50.0f);
+                constantsChanged |= ImGui::DragFloat("Max Speed", &maxSpeedUI, 1.0f, 0.0f, 100.0f);
+                constantsChanged |= ImGui::DragFloat("Viscosity", &viscosityUI, 0.01f, 0.0f, 1.0f);
+                constantsChanged |= ImGui::DragFloat("Stiffness", &stiffnessUI, 0.1f, 0.0f, 3000.0f);
+                constantsChanged |= ImGui::DragFloat("Boundary", &boundaryUI, 1.0f, 1.0f, 100.0f);
                 // If constants changed via UI, update the CB *before* the compute shader runs
                 if (constantsChanged) {
                     // We need to update the constant buffer. We can reuse UpdateComputeConstantBuffer
                     // but maybe pass the new values, or modify it to read from these static vars.
                     // Let's modify UpdateComputeConstantBuffer slightly.
                     UpdateComputeConstantBuffer({ g_instanceCount, deltaTime,gravityUI,floorYUI,
-                        densityRadiusUI,repulsionRadiusUI,maxSpeedUI,collisionDampingUI});
+                        densityRadiusUI,maxSpeedUI,viscosityUI,restDensityUI, stiffnessUI, boundaryUI });
                 }
 
 
@@ -875,14 +909,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             }
 
             //Handle camera
-            HandleCameraInput(deltaTime);
+            //HandleCameraInput(deltaTime);
             UpdateCameraBuffer();
 
-            UpdateComputeConstantBuffer({ g_instanceCount,deltaTime , gravityUI,floorYUI,densityRadiusUI,repulsionRadiusUI,maxSpeedUI,collisionDampingUI });
-            if (g_isPaused) {
+            UpdateComputeConstantBuffer({ g_instanceCount,deltaTime , gravityUI,floorYUI,densityRadiusUI,maxSpeedUI,viscosityUI, restDensityUI, stiffnessUI, boundaryUI});
+            if (!g_isPaused) {
                 //COMPUTE SHADER PAUSE
                 // 1. Set Compute Shader
-                g_context->CSSetShader(g_computeShader, nullptr, 0);
+                g_context->CSSetShader(g_computeDensityShader, nullptr, 0);
 
                 // 2. Set Input Resource (SRV) - Read from the current buffer
                 int readIdx = g_currentReadBuffer;
@@ -895,14 +929,23 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
                 UINT initialCounts = -1; // Use -1 if not using append/consume counters
                 g_context->CSSetUnorderedAccessViews(0, 1, &g_instanceUAVs[writeIdx], &initialCounts); // u0
-
                 // 4. Set Constant Buffer
-
                 g_context->CSSetConstantBuffers(0, 1, &g_particleCB); // b0
 
                 // 5. Dispatch
                 // Calculate number of thread groups needed
                 UINT dispatchWidth = (g_instanceCount + 255) / 256; // Match [numthreads(256, 1, 1)]
+                g_context->Dispatch(dispatchWidth, 1, 1);
+
+
+                g_context->CSSetUnorderedAccessViews(0, 1, &nullUAV, nullptr);
+
+
+                // Pass 2 for force integration
+                g_context -> CSSetShader(g_computeForceShader, nullptr, 0);
+                g_context->CSSetShaderResources(0, 1, &g_instanceSRVs[writeIdx]);
+                g_context->CSSetUnorderedAccessViews(0, 1, &g_instanceUAVs[readIdx], &initialCounts); // u0
+                g_context->CSSetConstantBuffers(0, 1, &g_particleCB); // b0
                 g_context->Dispatch(dispatchWidth, 1, 1);
 
                 // 6. Unbind UAV and SRV from Compute Shader stage
@@ -911,7 +954,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 
                 g_context->CSSetShaderResources(0, 1, &nullSRV);
                 g_context->CSSetShader(nullptr, nullptr, 0); // Unbind compute shader itself
-
+                g_currentReadBuffer = readIdx;
             }
             //ALWAYS RUN REST OF CONTEXT TO MAINTAIN PREVIOUS DRAWING
             // Clear render target and depth buffer
@@ -957,13 +1000,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             // ------------------
 
             // Update title
-            elapsed += deltaTime;
-            frameCount++;
+            //elapsed += deltaTime;
+            //frameCount++;
 
             g_swapChain->Present(1, 0);
-            g_currentReadBuffer = 1 - g_currentReadBuffer;
+            
         }
     }
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+
     CleanUpD3D();
     return 0;
 

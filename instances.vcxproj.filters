@@ -52,8 +52,9 @@
   <ItemGroup>
     <None Include="VertexShader.hlsl" />
     <None Include="PixelShader.hlsl" />
-    <None Include="ComputeShader.hlsl" />
+    <None Include="densityComputeShader.hlsl" />
     <None Include="README.md" />
+    <None Include="forceComputeShader.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="addons\imconfig.h">
