@@ -128,6 +128,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="addons\Camera\Camera.cpp" />
     <ClCompile Include="addons\imgui.cpp" />
     <ClCompile Include="addons\imgui_demo.cpp" />
     <ClCompile Include="addons\imgui_draw.cpp" />
@@ -157,6 +158,12 @@
     </None>
   </ItemGroup>
   <ItemGroup>
+    <None Include="forceComputeShader.hlsl">
+      <FileType>Document</FileType>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="addons\Camera\Camera.h" />
     <ClInclude Include="addons\imconfig.h" />
     <ClInclude Include="addons\imgui.h" />
     <ClInclude Include="addons\imgui_impl_dx11.h" />
@@ -170,11 +177,6 @@
     <ClInclude Include="addons\stb_image.h" />
     <ClInclude Include="addons\stb_image_resize.h" />
     <ClInclude Include="addons\stb_image_write.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="forceComputeShader.hlsl">
-      <FileType>Document</FileType>
-    </None>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

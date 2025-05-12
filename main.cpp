@@ -9,7 +9,11 @@ using namespace DirectX;
 #include "addons/imgui.h" 
 #include "addons/imgui_impl_win32.h"
 #include "addons/imgui_impl_dx11.h"
+#include "addons/Camera/Camera.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+Camera g_camera;
+bool g_keys[256] = { false };
+
 
 ID3D11Device* g_device = nullptr;
 ID3D11DeviceContext* g_context = nullptr;
@@ -25,6 +29,18 @@ ID3D11PixelShader* g_pixelShader = nullptr;
 ID3D11DepthStencilState* g_depthStencilState = nullptr;
 ID3D11DepthStencilView* g_depthStencilView = nullptr;
 ID3D11RasterizerState* g_rasterizerState = nullptr;
+
+//BUFFERS
+ID3D11Buffer* g_vertexBuffer = nullptr;
+ID3D11Buffer* g_indexBuffer = nullptr;
+
+ID3D11Buffer* g_instanceBuffers[2] = { nullptr,nullptr };
+ID3D11ShaderResourceView* g_instanceSRVs[2] = { nullptr, nullptr };
+ID3D11UnorderedAccessView* g_instanceUAVs[2] = { nullptr,nullptr };
+ID3D11ShaderResourceView* nullSRV = nullptr;
+ID3D11UnorderedAccessView* nullUAV = nullptr;
+ID3D11Buffer* g_particleCB = nullptr;
+int g_currentReadBuffer = 0;
 //For quads/cube vertex offsets
 struct Vertex {
     XMFLOAT3 position;
@@ -62,25 +78,16 @@ UINT g_instanceCount = 0;
 static float deltaTime = 1/165.0f;
 static float gravityUI = -9.81f;
 static float floorYUI = -15.0f;
-static float densityRadiusUI = 0.53f;
+static float densityRadiusUI = 1.53f;
 static float maxSpeedUI = 10.0f;
-static float viscosityUI = 0.4f;
-static float restDensityUI = 5.0f;
-static float stiffnessUI = 2000.0f;
+static float viscosityUI = 0.1f;
+static float restDensityUI = 6.5f;
+static float stiffnessUI = 1000.0f;
 static float boundaryUI = 10.0f;
 
 
 
-ID3D11Buffer* g_vertexBuffer = nullptr;
-ID3D11Buffer* g_indexBuffer = nullptr;
 
-ID3D11Buffer* g_instanceBuffers[2] = { nullptr,nullptr };
-ID3D11ShaderResourceView* g_instanceSRVs[2] = { nullptr, nullptr };
-ID3D11UnorderedAccessView* g_instanceUAVs[2] = { nullptr,nullptr };
-ID3D11ShaderResourceView* nullSRV = nullptr;
-ID3D11UnorderedAccessView* nullUAV = nullptr;
-ID3D11Buffer* g_particleCB = nullptr;
-int g_currentReadBuffer = 0;
 //initialize vertex and index buffers for drawing quad geometry from two triangles
 bool initGeometry() {
     if (g_vertexBuffer) {
@@ -315,6 +322,8 @@ void UpdateComputeConstantBuffer(ParticleConstants updateTerms) {
         printf("Failed to map compute constant buffer for update.\n");
     }
 }
+
+/*
 //CAMERA
 struct CameraCB {
     DirectX::XMFLOAT4X4 viewProjMatrix;
@@ -322,7 +331,7 @@ struct CameraCB {
     float padding1;
     DirectX::XMFLOAT3 cameraUp;
     float padding2;
-    DirectX::XMFLOAT3 cameraPosition; // <-- ADD THIS
+    DirectX::XMFLOAT3 cameraPosition;
     float padding3;
 };
 struct Camera {
@@ -375,7 +384,7 @@ void UpdateCameraBuffer() {
 void SetCameraPosition(float x, float y, float z) {
     g_camera.position = { x, y, z };
 }
-bool g_keys[256] = { false };
+
 void RotateCamera(float deltaYaw, float deltaPitch) {
     g_camera.yaw += deltaYaw;
     g_camera.pitch += deltaPitch;
@@ -424,7 +433,7 @@ void HandleCameraInput(float deltaTime) {
     if (g_keys[VK_DOWN])  RotateCamera(0.0f, -rotationSpeed);
     if (g_keys[VK_LEFT])  RotateCamera(-rotationSpeed, 0.0f);
     if (g_keys[VK_RIGHT]) RotateCamera(rotationSpeed, 0.0f);
-}
+}*/
 
 //D3D
 //D3D Cleanup
@@ -433,7 +442,8 @@ void CleanUpD3D() {
     ReleaseParticleBuffers();
     if (g_vertexBuffer) { g_vertexBuffer->Release(); g_vertexBuffer = nullptr; }
     if (g_indexBuffer) { g_indexBuffer->Release(); g_indexBuffer = nullptr; }
-    if (g_cameraCB) { g_cameraCB->Release(); g_cameraCB = nullptr; }
+    //if (g_cameraCB) { g_cameraCB->Release(); g_cameraCB = nullptr; }
+    g_camera.Release();
     if (g_particleCB) { g_particleCB->Release(); g_particleCB = nullptr; }
 
 
@@ -634,7 +644,10 @@ bool InitD3D(HWND hwnd) {
     viewport.TopLeftX = 0;
     viewport.TopLeftY = 0;
     g_context->RSSetViewports(1, &viewport);
-
+    if (!g_camera.Initialize(g_device)) { // Use the camera's initialize method
+        MessageBoxA(hwnd, "Failed to initialize Camera Buffer", "Error", MB_OK);
+        return false;
+    }
     return true;
 }
 void ResizeD3D(HWND hwnd) {
@@ -750,11 +763,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
         MessageBoxA(nullptr, "Failed to initialize D3D", "Error", MB_OK);
         return 0;
     }
-    if (!CreateCameraBuffer()) {
-        MessageBoxA(nullptr, "Failed to initialize Camera buffer", "Error", MB_OK);
-        CleanUpD3D();
-        return 0;
-    }
     if (!InitShaders()) {
         MessageBoxA(nullptr, "Failed to initialize shaders", "Error", MB_OK);
         CleanUpD3D();
@@ -809,11 +817,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     ShowWindow(hwnd, nCmdShow);
     UpdateWindow(hwnd);
     MSG msg = {};
-    float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    float clearColor[4] = { 0.4f, 0.4f, 0.4f, 1.0f };
 
     UpdateComputeConstantBuffer({g_instanceCount,0.01f,gravityUI,floorYUI,densityRadiusUI,maxSpeedUI,viscosityUI,restDensityUI,stiffnessUI,boundaryUI});
-    UpdateCameraBuffer();
-
+    //g_camera.UpdateBuffer(g_context);
+    RECT clientRect;
+    GetClientRect(hwnd, &clientRect);
+    float screenWidth = static_cast<float>(clientRect.right - clientRect.left);
+    float screenHeight = static_cast<float>(clientRect.bottom - clientRect.top);
+    g_camera.UpdateMatrices(screenWidth, screenHeight);
     bool show_control_window = true;
 
 
@@ -905,12 +917,20 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
             ImGuiIO& io = ImGui::GetIO();
             if (!io.WantCaptureKeyboard) { // Only move camera if ImGui doesn't need keyboard
-                HandleCameraInput(deltaTime);
+                g_camera.HandleInput(g_keys,deltaTime);
             }
+            // ADD THIS SECTION: Update camera matrices after input and before updating the GPU buffer
+            RECT clientRectLoop;
+            GetClientRect(hwnd, &clientRectLoop);
+            float currentScreenWidth = static_cast<float>(clientRectLoop.right - clientRectLoop.left);
+            float currentScreenHeight = static_cast<float>(clientRectLoop.bottom - clientRectLoop.top);
 
+            if (currentScreenWidth > 0 && currentScreenHeight > 0) { // Avoid issues if minimized
+                g_camera.UpdateMatrices(currentScreenWidth, currentScreenHeight);
+            }
             //Handle camera
             //HandleCameraInput(deltaTime);
-            UpdateCameraBuffer();
+            g_camera.UpdateBuffer(g_context);
 
             UpdateComputeConstantBuffer({ g_instanceCount,deltaTime , gravityUI,floorYUI,densityRadiusUI,maxSpeedUI,viscosityUI, restDensityUI, stiffnessUI, boundaryUI});
             if (!g_isPaused) {
@@ -976,7 +996,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 
             //Set vertex buffer
-            int bufferToDraw = 1 - g_currentReadBuffer;
+            int bufferToDraw = g_currentReadBuffer;
             ID3D11Buffer* vertexBuffer[] = { g_vertexBuffer };
             UINT stride[] = { sizeof(Vertex) };
             UINT offset[] = { 0 };
@@ -986,7 +1006,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             //Set index buffer
             g_context->IASetIndexBuffer(g_indexBuffer, DXGI_FORMAT_R32_UINT, 0);
             //Set camera constant buffer
-            g_context->VSSetConstantBuffers(0, 1, &g_cameraCB);
+            g_context->VSSetConstantBuffers(0, 1, g_camera.GetConstantBufferPtr());
 
             g_context->DrawIndexedInstanced(6, g_instanceCount, 0, 0, 0);
             // *** UNBIND VS SHADER RESOURCE *** (Good practice)

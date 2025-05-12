@@ -26,6 +26,7 @@ cbuffer ParticleCB : register(b0)
     
     float stiffnessConstant;
     float boundary;
+    
     float2 padding;
 };
 

@@ -1,11 +1,11 @@
 cbuffer CameraBuffer : register(b0)
 {
     matrix viewProjMatrix; // 64 bytes
+    float3 cameraPosition; // 12 bytes
+    float padding2; // 4 bytes
     float3 cameraRight; // 12 bytes
     float padding1; // 4 bytes
     float3 cameraUp; // 12 bytes
-    float padding2; // 4 bytes
-    float3 cameraPosition; // 12 bytes
     float padding3; // 4 bytes
 };
 
@@ -84,7 +84,7 @@ PSInput main(VSInput input, uint instanceID : SV_InstanceID)
     float density = instanceData.density;
     //float biased = pow(normSpeed, 0.3f);
         // Define colors for low and high speed
-    float4 colorLowSpeed = float4(0.4f, 0.0f, 0.1f, 1.0f); // Blue
+    float4 colorLowSpeed = float4(0.0f, 0.4f, 0.1f, 1.0f); // Blue
     float4 colorHighSpeed = float4(0.0f, 0.0f, 1.0f, 1.0f); // Red
     // Pass color (or calculate based on something else)
     //output.color = float4(0.1f, 0.1f,  normSpeed, 1.0f); // Pass vertex color through

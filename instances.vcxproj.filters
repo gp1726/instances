@@ -18,6 +18,9 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="addons\Camera\Camera.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="addons\imgui.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -57,6 +60,9 @@
     <None Include="forceComputeShader.hlsl" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="addons\Camera\Camera.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="addons\imconfig.h">
       <Filter>Header Files</Filter>
     </ClInclude>

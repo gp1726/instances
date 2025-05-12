@@ -31,9 +31,9 @@ cbuffer ParticleCB : register(b0)
 
 // --- SPH Kernel Constants ---
 static const float PI = 3.14159265f;
-static const float POLY6_COEFF = 315.0f / (64.0f * PI * pow(densityRadius, 9)); // If you switch to Poly6 later
-static const float SPIKY_GRAD_COEFF = -45.0f / (PI * pow(densityRadius, 6));
-static const float SPIKY_KERN_COEFF = 15.0f / (PI * pow(densityRadius, 6)); // Normalization for Spiky Kernel itself
+//static const float POLY6_COEFF = 315.0f / (64.0f * PI * pow(densityRadius, 9)); // If you switch to Poly6 later
+//static const float SPIKY_GRAD_COEFF = -45.0f / (PI * pow(densityRadius, 6));
+//static const float SPIKY_KERN_COEFF = 15.0f / (PI * pow(densityRadius, 6)); // Normalization for Spiky Kernel itself
 
 // Spiky Kernel for Density Calculation
 // h = radius of influence
@@ -43,7 +43,8 @@ float CalculateDensityWeight_Spiky(float dist, float h)
     if (dist < h && dist >= 0.0f) // Check if within radius
     {
         float x = h - dist;
-        return SPIKY_KERN_COEFF * x * x * x; // (h - r)^3 term
+        float spiky = 15.0f / (PI * pow(densityRadius, 6));
+        return spiky * x * x * x; // (h - r)^3 term
     }
     return 0.0f;
 }
@@ -59,6 +60,7 @@ void main(uint3 id : SV_DispatchThreadID)
         return;
     
     InstanceData p = dataIn[idx];
+    float SPIKY_GRAD_COEFF = -45.0f / (PI * pow(densityRadius, 6));
     
     //Apply gravity
     p.velocity.y += gravity * deltaTime;
@@ -90,8 +92,8 @@ void main(uint3 id : SV_DispatchThreadID)
             viscosityForce += viscosity * ((dataIn[j].velocity - p.velocity) * influence);
 
     // Gradient Calculation (only if within radius)
-            float coeff = -45.0f / (3.14159265f * pow(densityRadius, 6)); // Use PI for better accuracy
-            float gradW = coeff * pow(densityRadius - dist, 2); // Correct gradient for Spiky kernel
+            //float coeff = -45.0f / (3.14159265f * pow(densityRadius, 6)); // Use PI for better accuracy
+            float gradW = SPIKY_GRAD_COEFF * pow(densityRadius - dist, 2); // Correct gradient for Spiky kernel
 
             float3 pressureForce = pressureTerm * gradW * dir;
             p.force += pressureForce + viscosityForce; // Accumulate force
